@@ -1,62 +1,81 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
-	"net"
-	"strings"
+	"net/http"
 )
 
-func main() {
-	listener, err := net.Listen("tcp", "localhost:8080")
-	if err != nil {
-		fmt.Println("Error:", err)
+const (
+	hostname = "localhost"
+	port     = 8080
+	uri      = "/"
+)
+
+func handleUpgrade(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "GET" {
+		http.Error(w, "method of request MUST be GET", http.StatusBadRequest)
 		return
 	}
-	defer listener.Close()
 
-	fmt.Println("Server is listening on port 8080")
-
-	for {
-		// This blocks until a connection is made
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error:", err)
-			continue
-		}
-
-		go handleClient(conn)
+	if !req.ProtoAtLeast(1, 1) {
+		http.Error(w, "HTTP version MUST be at least 1.1", http.StatusBadRequest)
+		return
 	}
+
+	if req.RequestURI != uri {
+		http.Error(w, "resource uri does not match", http.StatusBadRequest)
+		return
+	}
+
+	if req.Host != fmt.Sprintf("%s:%d", hostname, port) {
+		http.Error(w, "Host header missing or does not match hostname", http.StatusBadRequest)
+		return
+	}
+
+	if req.Header.Get("Upgrade") != "websocket" {
+		http.Error(w, "Upgrade header missing or does not equal 'websocket'", http.StatusBadRequest)
+		return
+	}
+
+	if req.Header.Get("Connection") != "Upgrade" {
+		http.Error(w, "Connection header missing or does not equal 'Upgrade'", http.StatusBadRequest)
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(req.Header.Get("Sec-WebSocket-Key"))
+	if err != nil || len(decoded) != 16 {
+		http.Error(w,
+			"Sec-WebSocket-Key header missing or is not a 16 byte base64 encoded string",
+			http.StatusBadRequest,
+		)
+		return
+	}
+
+	// TODO: Figure out what exactly I need to verify here
+	if req.Header.Get("Origin") != "" {
+		fmt.Println("Origin included")
+	}
+
+	if req.Header.Get("Sec-WebSocket-Version") != "13" {
+		http.Error(w, "Sec-WebSocket-Version header missing or is not '13'", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: Figure out what exactly I need to verify here
+	if req.Header.Get("Sec-WebSocket-Protocol") != "" {
+		fmt.Println("Sec-WebSocket-Protocol included")
+	}
+
+	// TODO: Figure out what exactly I need to verify here
+	if req.Header.Get("Sec-WebSocket-Extensions") != "" {
+		fmt.Println("Sec-WebSocket-Extensions included")
+	}
+
+	fmt.Println("valid request!")
 }
 
-func handleClient(conn net.Conn) {
-	defer conn.Close()
-	fmt.Println("Connected to client")
-
-	buffer := make([]byte, 2048)
-
-	for {
-		// This blocks until something is received
-		n, err := conn.Read(buffer)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-
-		request := strings.Split(string(buffer[:n]), "\r\n")
-		requestLine := strings.Split(request[0], " ")
-		headers := make(map[string]string)
-
-		for i := 1; i < len(request); i++ {
-			header := strings.Split(request[i], ": ")
-			if len(header) < 2  {
-				continue
-			}
-			headers[header[0]] = header[1]
-		}
-		
-		if requestLine[0] != "GET" {
-			fmt.Println("Error: method of request MUST be GET")
-			return
-		}
-	}
+func main() {
+	http.HandleFunc(uri, handleUpgrade)
+	http.ListenAndServe(fmt.Sprintf("%s:%d", hostname, port), nil)
 }
