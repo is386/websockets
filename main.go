@@ -1,9 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"net/http"
+
+	"github.com/is386/super-base-64/superbase64"
 )
 
 const (
@@ -43,7 +44,7 @@ func handleUpgrade(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	decoded, err := base64.StdEncoding.DecodeString(req.Header.Get("Sec-WebSocket-Key"))
+	decoded, err := superbase64.NewStdEncoding().Decode(req.Header.Get("Sec-WebSocket-Key"))
 	if err != nil || len(decoded) != 16 {
 		http.Error(w,
 			"Sec-WebSocket-Key header missing or is not a 16 byte base64 encoded string",
